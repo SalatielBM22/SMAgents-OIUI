@@ -27,7 +27,8 @@ export function ProviderKeysProvider({ children }: { children: ReactNode }) {
   return (
     <ProviderKeysContext.Provider value={{
       headers: keys ? { "x-openai-api-key": keys.openai, "x-jev-api-key": keys.jev } : undefined,
-      hasKeys: keys !== null,
+      // Local single-user mode: the agent already holds server credentials (e.g. OmniRoute), so the browser needs none.
+      hasKeys: keys !== null || process.env.NEXT_PUBLIC_OIU_SERVER_KEYS === "1",
       session,
       save: (value) => { setKeys(value); setKeysOpen(false); setSession((value) => value + 1); },
       clear: () => { setKeys(null); newChat(); },

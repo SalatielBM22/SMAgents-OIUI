@@ -21,13 +21,15 @@ MAX_TOKENS = 64000
 
 def build_model(*, allow_unconfigured: bool = False) -> BaseChatModel:
     model_name = os.environ.get("LLM_MODEL", DEFAULT_MODEL).strip()
-    is_openai = model_name == "chat-latest" or model_name.startswith("gpt-")
-    if not is_openai and not model_name.startswith("claude-"):
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or None
+    is_anthropic = model_name.startswith("claude-") and not base_url
+    is_openai = not is_anthropic
+    if not is_anthropic and not (model_name == "chat-latest" or model_name.startswith("gpt-") or base_url):
         raise ValueError(
             "LLM_MODEL must name a supported provider: claude-* (Anthropic) "
             "or gpt-*/chat-latest (OpenAI). Unset LLM_MODEL to use the default."
         )
-    key_name = "OPENAI_API_KEY" if is_openai else "ANTHROPIC_API_KEY"
+    key_name = "ANTHROPIC_API_KEY" if is_anthropic else "OPENAI_API_KEY"
     if not os.environ.get(key_name, "").strip():
         if allow_unconfigured:
             return UnconfiguredModel()
@@ -35,15 +37,23 @@ def build_model(*, allow_unconfigured: bool = False) -> BaseChatModel:
             f"{key_name} is required for the selected LLM_MODEL provider. "
             "Set it in the agent environment and restart the agent."
         )
-    if is_openai:
-        # chat-latest follows ChatGPT Instant; explicit gpt-* pins also work.
-        from langchain_openai import ChatOpenAI
+    if is_anthropic:
+        return ChatAnthropic(
+            model=model_name,
+            max_tokens=MAX_TOKENS,
+        )
+    from langchain_openai import ChatOpenAI
 
-        return ChatOpenAI(model=model_name)
-    return ChatAnthropic(
-        model=model_name,
-        max_tokens=MAX_TOKENS,
-    )
+    if base_url:
+        # OpenAI-compatible proxy (OmniRoute): split whole tool-call deltas for ag_ui_langgraph, and ask for room for widget code.
+        from src.proxy_openai import SplitToolCallChatOpenAI
+
+        return SplitToolCallChatOpenAI(
+            model=model_name,
+            base_url=base_url,
+            max_tokens=int(os.environ.get("LLM_MAX_TOKENS", "32000")),
+        )
+    return ChatOpenAI(model=model_name, base_url=base_url)
 
 
 class UnconfiguredModel(BaseChatModel):
@@ -163,14 +173,31 @@ class CredentialScopedModel(BaseChatModel):
     def _stream(self, messages, stop=None, run_manager=None, **kwargs):
         with provider_error_boundary():
             model, options = self._target(kwargs)
-            for chunk in model.stream(messages, stop=stop, **options):
-                yield ChatGenerationChunk(message=as_chunk(chunk))
+            inner, bound = _unbind(model)
+            for chunk in inner._stream(messages, stop=stop, **{**bound, **options}):
+                yield ChatGenerationChunk(message=as_chunk(chunk.message))
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
         with provider_error_boundary():
             model, options = self._target(kwargs)
-            async for chunk in model.astream(messages, stop=stop, **options):
-                yield ChatGenerationChunk(message=as_chunk(chunk))
+            inner, bound = _unbind(model)
+            async for chunk in inner._astream(messages, stop=stop, **{**bound, **options}):
+                yield ChatGenerationChunk(message=as_chunk(chunk.message))
+
+
+def _unbind(model):
+    """The provider model and its bound kwargs (tools, tool_choice) when it was wrapped by bind_tools.
+
+    Streaming goes through the provider's own _stream/_astream instead of its public stream(): the public method opens a second
+    callback run under this wrapper's, LangGraph streams both, and ag_ui_langgraph saw every tool-call delta twice -- two
+    TOOL_CALL_START for one id ("A tool call with ID ... is already in progress"), or an END consumed by the hidden copy ("Cannot send
+    'RUN_FINISHED' while tool calls are still active").  This wrapper's own run already emits every chunk once.
+    """
+    from langchain_core.runnables import RunnableBinding
+
+    if isinstance(model, RunnableBinding):
+        return model.bound, dict(model.kwargs)
+    return model, {}
 
 
 def as_chunk(message):
