@@ -6,6 +6,7 @@ import {
 import { NextRequest, after } from "next/server";
 import { readProviderHeaders, PROVIDER_KEY_INPUT_ERROR } from "@/lib/provider-keys";
 import { buildRuntimeOptions } from "@/lib/copilotkit-runtime-options";
+import { readModelHeader } from "@/lib/model-choice";
 import { getLaunchTelemetry, observeRunResult, runtimeMethod } from "@/lib/launch-telemetry";
 
 // Simple in-memory sliding-window rate limiter (per IP)
@@ -54,6 +55,7 @@ export const POST = async (req: NextRequest) => {
     langgraphUrl: process.env.LANGGRAPH_DEPLOYMENT_URL,
     mcpServerUrl: process.env.MCP_SERVER_URL,
     providerHeaders,
+    model: readModelHeader(req.headers),
   });
 
   // Install counting (docs/telemetry.md). Only the first run's request body is inspected.

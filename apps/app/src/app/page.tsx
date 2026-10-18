@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ProviderKeysDialog } from "@/components/chat/provider-keys-dialog";
 import { useProviderKeys } from "@/components/chat/provider-keys";
+import { ModelPicker } from "@/components/chat/model-picker";
 import { KeyGatedChatView } from "@/components/chat/key-gated-chat-view";
 import Image from "next/image";
 import { ReaderScrollView } from "@/components/chat/reader-scroll-view";
@@ -86,6 +87,7 @@ export default function HomePage() {
           <button type="button" onClick={newChat} disabled={agent.isRunning || retrying}>
             New chat
           </button>
+          <ModelPicker disabled={agent.isRunning || retrying} />
           <button type="button" onClick={() => setKeysOpen(true)} disabled={agent.isRunning || retrying} aria-haspopup="dialog">
             API keys{hasKeys ? " •" : ""}
           </button>

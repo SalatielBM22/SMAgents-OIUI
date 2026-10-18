@@ -24,6 +24,7 @@ from src.credentials import (
 )
 from src.visualization_router import JevVisualizationMiddleware
 from src.skill_backend import SKILL_SOURCES, build_agent_backend
+from src.model_catalog import list_models
 from src.query import query_data
 from src.todos import AgentState, todo_tools
 from src.form import generate_form
@@ -64,6 +65,15 @@ async def validate_provider_credentials():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/models")
+async def models():
+    """Combos the UI can switch to (sm-* with tool calling); empty without a proxy."""
+    try:
+        return await list_models()
+    except Exception:  # proxy down or key rejected: the picker falls back to the default
+        return JSONResponse({"default": None, "models": []}, status_code=503)
 
 
 add_langgraph_fastapi_endpoint(

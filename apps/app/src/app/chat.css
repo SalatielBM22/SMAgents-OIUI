@@ -31,6 +31,33 @@
   text-decoration: none;
   cursor: pointer;
 }
+.model-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.model-picker-label {
+  opacity: 0.7;
+}
+.model-picker select {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  max-width: 190px;
+}
+.model-picker option {
+  color: #111;
+  background: #fff;
+}
+.model-picker select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .chat-brand {
   padding: 14px;
   background: white;

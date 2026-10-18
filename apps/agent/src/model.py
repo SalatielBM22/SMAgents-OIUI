@@ -150,7 +150,7 @@ class CredentialScopedModel(BaseChatModel):
         return self.bind(_credential_tools=tools, _credential_tool_options=kwargs)
 
     def _target(self, kwargs):
-        model = request_model(self.fallback)
+        model = with_requested_model(request_model(self.fallback))
         options = dict(kwargs)
         tools = options.pop("_credential_tools", None)
         tool_options = options.pop("_credential_tool_options", {})
@@ -183,6 +183,22 @@ class CredentialScopedModel(BaseChatModel):
             inner, bound = _unbind(model)
             async for chunk in inner._astream(messages, stop=stop, **{**bound, **options}):
                 yield ChatGenerationChunk(message=as_chunk(chunk.message))
+
+
+def with_requested_model(model):
+    """The server model with the combo the UI picked for this request (header x-oiu-model), if any.
+
+    Only for server credentials behind a proxy (OmniRoute): a visitor's own keys keep their fixed model.  The copy shares the
+    HTTP clients; only the model name changes, so switching combos mid-conversation needs no restart.
+    """
+    from src.credentials import current_credentials, current_model
+
+    name = current_model.get()
+    if not name or current_credentials.get() is not None or not os.environ.get("OPENAI_BASE_URL", "").strip():
+        return model
+    if getattr(model, "model_name", None) in (None, name):
+        return model
+    return model.model_copy(update={"model_name": name})
 
 
 def _unbind(model):

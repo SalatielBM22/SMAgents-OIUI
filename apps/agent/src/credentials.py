@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 
 import httpx
 from copilotkit import LangGraphAGUIAgent
@@ -22,6 +23,22 @@ class Credentials:
 
 current_credentials: ContextVar[Credentials | None] = ContextVar('provider_credentials', default=None)
 SENSITIVE_HEADERS = {b'x-openai-api-key', b'x-jev-api-key'}
+
+# Per-request model (an OmniRoute combo) picked in the UI header.  Not a secret; only honoured for server credentials.
+current_model: ContextVar[str | None] = ContextVar('request_model', default=None)
+MODEL_HEADER = b'x-oiu-model'
+MODEL_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$')
+
+
+def parse_model(headers):
+    for name, value in headers:
+        if name.lower() == MODEL_HEADER:
+            try:
+                text = value.decode('ascii').strip()
+            except UnicodeDecodeError:
+                return None
+            return text if MODEL_ID.match(text) else None
+    return None
 
 
 def parse_credentials(headers):
@@ -67,11 +84,13 @@ class CredentialsMiddleware:
             return await JSONResponse({'ok': False, 'code': 'credentials_required'}, status_code=401)(scope, receive, send)
         clean_scope = {**scope, 'headers': [(k, v) for k, v in scope.get('headers', []) if k.lower() not in SENSITIVE_HEADERS]}
         token = current_credentials.set(credentials)
+        model_token = current_model.set(parse_model(scope.get('headers', [])))
         try:
             # BYOK provider calls and graph runs must never enter hosted traces.
             with tracing_context(enabled=False if credentials else None):
                 await self.app(clean_scope, receive, send)
         finally:
+            current_model.reset(model_token)
             current_credentials.reset(token)
 
 
